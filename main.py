@@ -106,23 +106,22 @@ def estado_conexoes(output_widget):
         except:
             continue
 
-def scanner_de_ip(output_widget):
+def scanner_de_ip(output_widget, rede):
     if sr1 is None:
         exibir_saida(output_widget, "[!] Scapy não está instalado.")
         return
 
-    exibir_saida(output_widget, "[*] Iniciando scanner de IPs e portas (porta 80)...")
-    rede = "192.168.0."  # Ajuste conforme sua rede
-    for i in range(1, 10):
+    exibir_saida(output_widget, f"[*] Iniciando scanner na rede {rede}x (portas 21,22,23,80,443)...")
+    for i in range(1, 255):
         ip = f"{rede}{i}"
-        pkt = IP(dst=ip)/TCP(dport=80, flags="S")
+        pkt = IP(dst=ip)/TCP(dport=[21, 22, 23, 80, 443], flags="S")
         resp = sr1(pkt, timeout=0.5, verbose=0)
         if resp:
-            exibir_saida(output_widget, f"[✓] {ip} está ativo e respondeu na porta 80")
+            exibir_saida(output_widget, f"[✓] {ip} respondeu em alguma porta")
 
-def testar_dns(output_widget):
+def testar_dns(output_widget, ips_str):
+    servidores = [ip.strip() for ip in ips_str.split(",")]
     exibir_saida(output_widget, "[*] Testando resolução DNS...")
-    servidores = ["8.8.8.8", "1.1.1.1"]
     for servidor in servidores:
         try:
             nome = socket.gethostbyaddr(servidor)
@@ -130,7 +129,80 @@ def testar_dns(output_widget):
         except:
             exibir_saida(output_widget, f"[✗] {servidor} não respondeu")
 
-# ------------------ INTERFACE ------------------
+def ping_tracert(output_widget, destinos_str):
+    destinos = [d.strip() for d in destinos_str.split(",")]
+    for destino in destinos:
+        exibir_saida(output_widget, f"[*] Pingando {destino}...")
+        try:
+            resposta = subprocess.run(["ping", "-n", "4", destino], capture_output=True, text=True, timeout=10)
+            exibir_saida(output_widget, resposta.stdout)
+        except Exception as e:
+            exibir_saida(output_widget, f"[✗] Erro no ping: {e}")
+
+        exibir_saida(output_widget, f"[*] Executando tracert para {destino}...")
+        try:
+            resposta = subprocess.run(["tracert", destino], capture_output=True, text=True, timeout=30)
+            exibir_saida(output_widget, resposta.stdout)
+        except Exception as e:
+            exibir_saida(output_widget, f"[✗] Erro no tracert: {e}")
+
+# ------------------ JANELAS DE CONFIGURAÇÃO ------------------
+
+def janela_scanner_ip(output_widget):
+    def executar():
+        rede = entrada_rede.get()
+        if not rede:
+            messagebox.showwarning("Atenção", "Rede não informada.")
+            return
+        janela.destroy()
+        executar_em_thread(lambda: scanner_de_ip(output_widget, rede))
+
+    janela = tk.Toplevel()
+    janela.title("Configurar Scanner de IPs")
+    janela.geometry("300x150")
+    tk.Label(janela, text="Informe a rede base (ex: 192.168.1.):").pack(pady=10)
+    entrada_rede = tk.Entry(janela, width=30)
+    entrada_rede.pack(pady=5)
+    tk.Button(janela, text="Executar Scanner", command=executar).pack(pady=10)
+    tk.Button(janela, text="Cancelar", command=janela.destroy).pack()
+
+def janela_teste_dns(output_widget):
+    def executar():
+        ips = entrada_ips.get()
+        if not ips:
+            messagebox.showwarning("Atenção", "IPs não informados.")
+            return
+        janela.destroy()
+        executar_em_thread(lambda: testar_dns(output_widget, ips))
+
+    janela = tk.Toplevel()
+    janela.title("Configurar Teste de DNS")
+    janela.geometry("300x150")
+    tk.Label(janela, text="Informe IPs separados por vírgula:").pack(pady=10)
+    entrada_ips = tk.Entry(janela, width=30)
+    entrada_ips.pack(pady=5)
+    tk.Button(janela, text="Executar Teste", command=executar).pack(pady=10)
+    tk.Button(janela, text="Cancelar", command=janela.destroy).pack()
+
+def janela_ping_tracert(output_widget):
+    def executar():
+        destinos = entrada_destinos.get()
+        if not destinos:
+            messagebox.showwarning("Atenção", "Destinos não informados.")
+            return
+        janela.destroy()
+        executar_em_thread(lambda: ping_tracert(output_widget, destinos))
+
+    janela = tk.Toplevel()
+    janela.title("Configurar Ping e Traceroute")
+    janela.geometry("300x150")
+    tk.Label(janela, text="Informe IPs/Domínios separados por vírgula:").pack(pady=10)
+    entrada_destinos = tk.Entry(janela, width=30)
+    entrada_destinos.pack(pady=5)
+    tk.Button(janela, text="Executar Teste", command=executar).pack(pady=10)
+    tk.Button(janela, text="Cancelar", command=janela.destroy).pack()
+
+# ------------------ INTERFACE PRINCIPAL ------------------
 
 def executar_em_thread(func, output_widget=None):
     if output_widget:
@@ -141,13 +213,13 @@ def executar_em_thread(func, output_widget=None):
 def iniciar_interface():
     root = tk.Tk()
     root.title("Otimizador de Sistema Windows")
-    root.geometry("700x500")
+    root.geometry("750x550")
     root.resizable(False, False)
 
     notebook = ttk.Notebook(root)
     notebook.pack(expand=True, fill="both", padx=10, pady=10)
 
-    # ------------------ Aba Sistema Operacional ------------------
+    # Aba Sistema Operacional
     aba_sistema = ttk.Frame(notebook)
     notebook.add(aba_sistema, text="Sistema Operacional")
 
@@ -163,22 +235,23 @@ def iniciar_interface():
     for texto, funcao in botoes:
         tk.Button(aba_sistema, text=texto, width=40, height=2, command=lambda f=funcao: executar_em_thread(f)).pack(pady=5)
 
-    # ------------------ Aba Ferramentas de Rede ------------------
+    # Aba Ferramentas de Rede
     aba_rede = ttk.Frame(notebook)
     notebook.add(aba_rede, text="Ferramentas de Rede")
 
-    output = scrolledtext.ScrolledText(aba_rede, width=80, height=20, state="disabled", font=("Consolas", 10))
+    output = scrolledtext.ScrolledText(aba_rede, width=90, height=20, state="disabled", font=("Consolas", 10))
     output.pack(pady=10)
 
     botoes_rede = [
         ("Teste de Velocidade", teste_de_velocidade),
         ("Estado das Conexões", estado_conexoes),
-        ("Scanner de IPs (porta 80)", scanner_de_ip),
-        ("Testar DNS", testar_dns),
+        ("Scanner de IPs (Configurar)", janela_scanner_ip),
+        ("Testar DNS (Configurar)", janela_teste_dns),
+        ("Ping e Traceroute (Configurar)", janela_ping_tracert),
     ]
 
     for texto, funcao in botoes_rede:
-        tk.Button(aba_rede, text=texto, width=30, command=lambda f=funcao: executar_em_thread(f, output)).pack(pady=3)
+        tk.Button(aba_rede, text=texto, width=35, command=lambda f=funcao: executar_em_thread(f, output)).pack(pady=3)
 
     tk.Button(root, text="Sair", width=30, command=root.quit).pack(pady=10)
 
